@@ -8,7 +8,7 @@ Imports: SeqArray (>= 1.24.0)
 LinkingTo: gdsfmt
 Suggests: parallel, digest, crayon, RUnit, knitr, BiocGenerics
 Authors@R: c(person("Xiuwen", "Zheng", role=c("aut", "cre"),
-    email="zhengxwen@gmail.com", comment=c(ORCID="0000-0002-1390-0708")))
+    email="zhengx@u.washington.edu", comment=c(ORCID="0000-0002-1390-0708")))
 Description: Provides functions for the format conversion from bgen files to
     SeqArray GDS files.
 License: GPL-3
