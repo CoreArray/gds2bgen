@@ -9,7 +9,8 @@ gds2bgen: Format Conversion from BGEN to GDS
 
 This package provides functions for format conversion from [bgen](http://bgenformat.org) files to [SeqArray GDS](https://github.com/zhengxwen/SeqArray) files.
 
-**Importance**: gds2bgen has been moved to https://github.com/CoreArray/gds2bgen from https://github.com/zhengxwen/gds2bgen since Feb 2025.
+* gds2bgen has been moved to https://github.com/CoreArray/gds2bgen from https://github.com/zhengxwen/gds2bgen since Feb 2025.
+
 
 ## Version
 
