@@ -3,6 +3,8 @@ CHANGES IN VERSION 0.9.4 (2025-02)
 
     o Detect python3 and python2 in Makefile
 
+    o new argument 'ignore.chr.prefix' in `seqBGEN2GDS()`
+
 
 CHANGES IN VERSION 0.9.3 (2024-03)
 -------------------------

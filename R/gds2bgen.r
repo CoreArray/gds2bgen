@@ -73,8 +73,9 @@ seqBGEN_Info <- function(bgen.fn=NULL, verbose=TRUE)
 #
 seqBGEN2GDS <- function(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
     c("packed8", "packed16", "single", "double", "sp.real32", "sp.real64"),
-    geno=FALSE, dosage=TRUE, prob=FALSE, start=1L, count=-1L, sample.id=NULL,
-    optimize=TRUE, digest=TRUE, parallel=FALSE, verbose=TRUE)
+    geno=FALSE, dosage=TRUE, prob=FALSE, ignore.chr.prefix=c("chr", "0"),
+    start=1L, count=-1L, sample.id=NULL, optimize=TRUE, digest=TRUE, parallel=FALSE,
+    verbose=TRUE)
 {
     # check
     stopifnot(is.character(bgen.fn), length(bgen.fn)==1L)
@@ -106,6 +107,7 @@ seqBGEN2GDS <- function(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
     stopifnot(is.logical(geno), length(geno)==1L)
     stopifnot(is.logical(dosage), length(dosage)==1L)
     stopifnot(is.logical(prob), length(prob)==1L)
+    stopifnot(is.character(ignore.chr.prefix), length(ignore.chr.prefix)>0L)
     stopifnot(is.numeric(start), length(start)==1L)
     stopifnot(is.numeric(count), length(count)==1L)
 
@@ -357,8 +359,8 @@ seqBGEN2GDS <- function(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
             progfile <- NULL
         }
         # call C function
-        .Call(SEQ_BGEN_Import, bgen.fn, gfile$root, start, count, progfile,
-            verbose)
+        .Call(SEQ_BGEN_Import, bgen.fn, gfile$root, ignore.chr.prefix,
+            start, count, progfile, verbose)
     } else {
         ## merge all temporary files
         varnm <- c("variant.id", "position", "chromosome", "allele",

@@ -302,6 +302,19 @@ void CProgress::ShowProgress()
 extern "C"
 {
 
+/// return true, if matching
+inline static bool StrCaseCmp(const char *prefix, const char *txt, size_t nmax)
+{
+	while (*prefix && *txt && nmax>0)
+	{
+		if (toupper(*prefix) != toupper(*txt))
+			return false;
+		prefix ++; txt ++; nmax --;
+	}
+	return (*prefix == 0);
+}
+
+
 /// get the info of bgen file
 COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_Info(SEXP bgen_fn)
 {
@@ -416,7 +429,7 @@ COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_Info(SEXP bgen_fn)
 
 
 /// get the info of bgen file
-COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_Import(SEXP bgen_fn, SEXP gds_root,
+COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_Import(SEXP bgen_fn, SEXP gds_root, SEXP ChrPrefix,
 	SEXP Start, SEXP Count, SEXP progfile, SEXP Verbose)
 {
 	const char *filename = CHAR(STRING_ELT(bgen_fn, 0));
@@ -470,6 +483,11 @@ COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_Import(SEXP bgen_fn, SEXP gds_root,
 		uint32_t position;
 		vector<string> alleles;
 
+		// chromosome coding prefix
+		vector<const char *> ChrPref;
+		for (size_t i=0; i < Rf_length(ChrPrefix); i++)
+			ChrPref.push_back(CHAR(STRING_ELT(ChrPrefix, i)));
+
 		// skip
 		for (int idx=1; idx < start; idx++)
 		{
@@ -507,8 +525,19 @@ COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_Import(SEXP bgen_fn, SEXP gds_root,
 			// variant.id
 			I32 = idx;
 			GDS_Array_AppendData(varIdx, 1, &I32, svInt32);
+
 			// chromosome
+			vector<const char *>::iterator ps;
+			for (ps=ChrPref.begin(); ps != ChrPref.end(); ps++)
+			{
+				if (StrCaseCmp(*ps, chr.c_str(), chr.size()))
+				{
+					chr.erase(0, strlen(*ps));
+					break;
+				}
+			}
 			GDS_Array_AppendData(varChr, 1, &chr, svStrUTF8);
+
 			// position
 			I32 = position;
 			GDS_Array_AppendData(varPos, 1, &I32, svInt32);

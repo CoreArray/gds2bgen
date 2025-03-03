@@ -8,8 +8,9 @@
 \usage{
 seqBGEN2GDS(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
     c("packed8", "packed16", "single", "double", "sp.real32", "sp.real64"),
-    geno=FALSE, dosage=TRUE, prob=FALSE, start=1L, count=-1L, sample.id=NULL,
-    optimize=TRUE, digest=TRUE, parallel=FALSE, verbose=TRUE)
+    geno=FALSE, dosage=TRUE, prob=FALSE, ignore.chr.prefix=c("chr", "0"),
+    start=1L, count=-1L, sample.id=NULL, optimize=TRUE, digest=TRUE,
+    parallel=FALSE, verbose=TRUE)
 }
 
 \arguments{
@@ -34,6 +35,9 @@ seqBGEN2GDS(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
         i.e., alternative allele dosages}
     \item{prob}{if TRUE, store floating-point probabilities in "annotation/format/GP",
         i.e., prob of heterozygous geno, prob of homozygous alternative allele}
+    \item{ignore.chr.prefix}{a vector of character, indicating the prefix of
+        chromosome which should be ignored, e.g., \code{"chr"}; it is not
+        case-sensitive}
     \item{start}{the starting variant if importing part of VCF files}
     \item{count}{the maximum count of variant if importing part of VCF files,
         -1 indicates importing to the end}
