@@ -2,7 +2,7 @@
 //
 // gds2bgen.cpp: format conversion between GDS and BGEN
 //
-// Copyright (C) 2018-2022    Xiuwen Zheng (zhengxwen@gmail.com)
+// Copyright (C) 2018-2025    Xiuwen Zheng (zhengxwen@gmail.com)
 //
 // gds2bgen is free software: you can redistribute it and/or modify it
 // under the terms of the GNU General Public License Version 3 as
@@ -279,9 +279,9 @@ void CProgress::ShowProgress()
 		{
 			s = difftime(_last_time, _start_time);
 			if (!progress_conn)
-				Rprintf("\r[%s] 100%%, completed in %s\n", bar, time_str(s));
+				Rprintf("\r[%s] 100%%, completed, %s\n", bar, time_str(s));
 			else {
-				put_text(progress_conn, "[%s] 100%%, completed in %s\n", bar, time_str(s));
+				put_text(progress_conn, "[%s] 100%%, completed, %s\n", bar, time_str(s));
 				(*progress_conn->fflush)(progress_conn);
 			}
 		} else if ((interval >= 5) || (fCounter <= 0))
@@ -302,7 +302,7 @@ void CProgress::ShowProgress()
 extern "C"
 {
 
-/// return true, if matching
+/// Return true, if matching
 inline static bool StrCaseCmp(const char *prefix, const char *txt, size_t nmax)
 {
 	while (*prefix && *txt && nmax>0)
@@ -315,7 +315,7 @@ inline static bool StrCaseCmp(const char *prefix, const char *txt, size_t nmax)
 }
 
 
-/// get the info of bgen file
+/// Get the info of bgen file
 COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_Info(SEXP bgen_fn)
 {
 	// only need bgen library version information?
@@ -428,7 +428,7 @@ COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_Info(SEXP bgen_fn)
 
 
 
-/// get the info of bgen file
+/// Import a bgen file
 COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_Import(SEXP bgen_fn, SEXP gds_root, SEXP ChrPrefix,
 	SEXP Start, SEXP Count, SEXP progfile, SEXP Verbose)
 {
@@ -438,7 +438,7 @@ COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_Import(SEXP bgen_fn, SEXP gds_root, SEXP ChrP
 	int count = Rf_asInteger(Count);
 	int verbose = Rf_asLogical(Verbose);
 	if (verbose == NA_LOGICAL)
-		error("'verbose' must be TRUE or FALSE.");
+		Rf_error("'verbose' must be TRUE or FALSE.");
 
 	COREARRAY_TRY
 
@@ -648,7 +648,7 @@ COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_Import(SEXP bgen_fn, SEXP gds_root, SEXP ChrP
 
 
 
-/// initialize the package
+/// Initialize the package
 COREARRAY_DLL_EXPORT void R_init_gds2bgen(DllInfo *info)
 {
 	#define CALL(name, num)	   { #name, (DL_FUNC)&name, num }

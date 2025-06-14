@@ -191,7 +191,7 @@ seqBGEN2GDS <- function(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
         if (count >= pnum)
         {
             fn <- sub("^([^.]*).*", "\\1", basename(out.fn))
-            psplit <- SeqArray:::.file_split(count, pnum, start, FALSE)
+            psplit <- SeqArray:::.file_split(count, pnum, start)
 
             # need unique temporary file names
             ptmpfn <- character()
@@ -215,14 +215,13 @@ seqBGEN2GDS <- function(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
 
             # conversion in parallel
             seqParallel(parallel, NULL,
-                FUN = function(
-                               bgen.fn, storage.option, float.type, dosage, geno, prob,
-                               optim, ptmpfn, psplit, verbose) {
-                    library("gds2bgen", quietly = TRUE)
+                FUN = function(bgen.fn, storage.option, float.type,
+                    dosage, geno, prob, optim, ptmpfn, psplit, verbose)
+                {
                     # the process id, starting from one
                     i <- SeqArray:::process_index
                     attr(bgen.fn, "progress") <- TRUE
-                    seqBGEN2GDS(bgen.fn, ptmpfn[i],
+                    gds2bgen::seqBGEN2GDS(bgen.fn, ptmpfn[i],
                         storage.option = storage.option,
                         float.type = float.type, dosage = dosage, geno = geno, prob = prob,
                         start = psplit[[1L]][i], count = psplit[[2L]][i],
@@ -389,7 +388,7 @@ seqBGEN2GDS <- function(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
         for (fn in ptmpfn)
         {
             if (verbose)
-                cat("    opening '", basename(fn), "' ...", sep="")
+                cat("    adding ", sQuote(basename(fn)))
             # open the gds file
             tmpgds <- openfn.gds(fn)
             # merge variables
