@@ -2,7 +2,7 @@
 #
 # gds2bgen.r: format conversion between GDS and BGEN
 #
-# Copyright (C) 2018-2019    Xiuwen Zheng (zhengxwen@gmail.com)
+# Copyright (C) 2018-2025    Xiuwen Zheng (zhengxwen@gmail.com)
 #
 # This is free software: you can redistribute it and/or modify it
 # under the terms of the GNU General Public License Version 3 as
@@ -22,6 +22,8 @@
 #
 
 .cat <- function(...) cat(..., "\n", sep="")
+
+tm <- function() strftime(Sys.time(), "%Y-%m-%d %H:%M:%S")
 
 
 #############################################################
@@ -115,11 +117,11 @@ seqBGEN2GDS <- function(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
     info <- seqBGEN_Info(bgen.fn, verbose=FALSE)
     if (verbose)
     {
-        .cat(date())
+        .cat("##< ", tm())
         # bgen information
         cat("BGEN Import:\n")
-        cat("    file:", bgen.fn)
-        cat(" (", SeqArray:::.pretty_size(file.size(bgen.fn)), ")\n", sep="")
+        .cat("    file (", SeqArray:::.pretty_size(file.size(bgen.fn)), "):")
+        .cat("        ", bgen.fn)
         .cat("    # of samples: ", info$num.sample)
         .cat("    # of variants: ", info$num.variant)
         .cat("    bgen compression method: ", info$compression)
@@ -349,10 +351,10 @@ seqBGEN2GDS <- function(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
     {
         if (isTRUE(attr(bgen.fn, "progress")))
         {
-            progfile <- file(paste0(out.fn, ".progress"), "wt")
+            progfile <- file(paste0(out.fn, ".progress.txt"), "wt")
             on.exit({
                 close(progfile)
-                unlink(paste0(out.fn, ".progress"), force=TRUE)
+                unlink(paste0(out.fn, ".progress.txt"), force=TRUE)
             }, add=TRUE)
         } else {
             progfile <- NULL
@@ -388,7 +390,7 @@ seqBGEN2GDS <- function(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
         for (fn in ptmpfn)
         {
             if (verbose)
-                cat("    adding ", sQuote(basename(fn)))
+                cat("    adding", sQuote(basename(fn)))
             # open the gds file
             tmpgds <- openfn.gds(fn)
             # merge variables
@@ -396,7 +398,7 @@ seqBGEN2GDS <- function(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
                 append.gdsn(index.gdsn(gfile, nm), index.gdsn(tmpgds, nm))
             # close the file
             closefn.gds(tmpgds)
-            if (verbose) cat(" [done]\n")
+            if (verbose) .cat(" [", tm(), " done]")
         }
 
         # remove temporary files
@@ -417,20 +419,14 @@ seqBGEN2GDS <- function(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
     gfile <- NULL
 
     if (verbose)
-    {
-        cat("Done.\n")
-        cat(date(), "\n", sep="")
-    }
+        if (optimize) .cat("Done.  # ", tm()) else cat("Done.\n")
     if (optimize)
     {
         if (verbose)
-        {
             cat("Optimize the access efficiency ...\n")
-            flush.console()
-        }
         cleanup.gds(out.fn, verbose=verbose)
-        if (verbose) cat(date(), "\n", sep="")
     }
+    if (verbose) .cat("##> ", tm())
 
     # output
     invisible(normalizePath(out.fn))
