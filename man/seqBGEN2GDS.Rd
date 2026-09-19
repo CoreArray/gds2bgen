@@ -7,7 +7,8 @@
 
 \usage{
 seqBGEN2GDS(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
-    c("packed8", "packed16", "single", "double", "sp.real32", "sp.real64"),
+    c("packed8", "packed16", "single", "double", "sp.real8u", "sp.real16u",
+    "sp.real32", "sp.real64"),
     geno=FALSE, dosage=TRUE, prob=FALSE, ignore.chr.prefix=c("chr", "0"),
     start=1L, count=-1L, sample.id=NULL, optimize=TRUE, digest=TRUE,
     parallel=FALSE, verbose=TRUE)
@@ -28,6 +29,10 @@ seqBGEN2GDS(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
         matrix), "packed16": use packedreal16u for dense matrix; "single":
         single-precision floating-point numbers (dense matrix);
         "double": double-precision floating-point numbers (dense matrix);
+        "sp.real8u": use sp.real8u for sparse matrix (8-bit unsigned packed
+        real numbers, requiring gdsfmt >= v1.49.9);
+        "sp.real16u": use sp.real16u for sparse matrix (16-bit unsigned packed
+        real numbers, requiring gdsfmt >= v1.49.9);
         "sp.real32": single-precision sparse matrix;
         "sp.real64": double-precision sparse matrix}
     \item{geno}{if TRUE, store integer genotypes}

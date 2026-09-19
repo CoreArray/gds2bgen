@@ -1,6 +1,7 @@
 # Load the shared object
 useDynLib(gds2bgen,
-    SEQ_BGEN_Info, SEQ_BGEN_Import
+    SEQ_BGEN_Info, SEQ_BGEN_Import,
+    SEQ_BGEN_ExportBegin, SEQ_BGEN_ExportData, SEQ_BGEN_ExportEnd
 )
 
 # Export the following names
@@ -9,5 +10,5 @@ exportPattern("^seq*")
 # Import
 import(methods)
 import(gdsfmt)
-importFrom(utils, flush.console)
+importFrom(utils, flush.console, packageVersion)
 importFrom(SeqArray, seqStorageOption, seqParallel)

@@ -1,4 +1,4 @@
-gds2bgen: Format Conversion from BGEN to GDS
+gds2bgen: Format Conversion Between BGEN and GDS
 ===
 
 ![GPLv3](http://www.gnu.org/graphics/gplv3-88x31.png)
@@ -122,6 +122,24 @@ seqClose(f)
 ## |     |  \--+ data   { PackedReal8U 500x199 LZMA_ra(55.6%), 54.0K } *
 ## \--+ sample.annotation   [  ]
 ```
+
+
+## Reverse Conversion (GDS to BGEN)
+
+```R
+# example.gds ==> out.bgen (BGEN layout v1.2)
+seqGDS2BGEN("example.gds", "out.bgen",
+    prob.source="auto",    # "GP" (lossless), "DS" (dosage-derived) or "GT" (hard call);
+                           # "auto" prefers GP, then DS, then GT
+    bits=8,                # number of bits per probability
+    compression="zlib"     # "zlib", "zstd" or "none"
+)
+
+seqBGEN_Info("out.bgen")
+```
+
+Only bi-allelic, diploid variants are supported. When an opened
+`SeqVarGDSClass` object is passed, the current sample/variant filter is honored.
 
 
 ## Also See

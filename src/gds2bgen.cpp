@@ -648,6 +648,230 @@ COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_Import(SEXP bgen_fn, SEXP gds_root, SEXP ChrP
 
 
 
+// ===================================================================== //
+// Format conversion from GDS to BGEN (single-threaded writer)
+//
+// The writer keeps an output file stream open across multiple .Call()s via
+// an R external pointer:
+//     SEQ_BGEN_ExportBegin() -> writes the offset/header/sample-id blocks
+//     SEQ_BGEN_ExportData()  -> appends a block of (bi-allelic) variants
+//     SEQ_BGEN_ExportEnd()   -> flushes & closes the stream
+// Only bi-allelic, diploid, unphased data (BGEN layout v1.2) is supported in
+// this MVP, mirroring the bi-allelic limitation of the import path.
+
+/// The on-disk BGEN writer state attached to an R external pointer
+struct CBGenWriter
+{
+	std::ofstream stream;     ///< the output file stream
+	bgen::Context context;    ///< the BGEN header context
+	int bits;                 ///< the number of bits per probability
+	bool phased;              ///< whether to write phased haplotypes (unused in MVP)
+	std::string filename;     ///< the output file name
+	C_Int64 nvar_written;     ///< the number of variants written so far
+	std::vector<genfile::byte_t> buf_id, buf1, buf2;  ///< working buffers
+};
+
+/// Free the writer object when the external pointer is garbage-collected
+static void bgen_writer_finalizer(SEXP ptr)
+{
+	CBGenWriter *w = (CBGenWriter *)R_ExternalPtrAddr(ptr);
+	if (w)
+	{
+		if (w->stream.is_open()) w->stream.close();
+		delete w;
+		R_ClearExternalPtr(ptr);
+	}
+}
+
+static CBGenWriter *get_bgen_writer(SEXP ptr)
+{
+	CBGenWriter *w = (CBGenWriter *)R_ExternalPtrAddr(ptr);
+	if (!w) throw ErrCoreArray("The BGEN writer has been closed.");
+	return w;
+}
+
+
+/// Create a BGEN file and write the header; return an external pointer
+COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_ExportBegin(SEXP OutFN, SEXP NSamp,
+	SEXP NVariant, SEXP SampleID, SEXP Bits, SEXP Compress, SEXP Phased)
+{
+	const char *filename = CHAR(STRING_ELT(OutFN, 0));
+	const int nSamp = Rf_asInteger(NSamp);
+	const int nVariant = Rf_asInteger(NVariant);
+	const int bits = Rf_asInteger(Bits);
+	const char *compress = CHAR(STRING_ELT(Compress, 0));
+	const int phased = Rf_asLogical(Phased);
+
+	COREARRAY_TRY
+
+		if (nSamp <= 0)
+			throw ErrCoreArray("No sample to export.");
+		if (bits < 1 || bits > 32)
+			throw ErrCoreArray("'bits' should be between 1 and 32.");
+
+		CBGenWriter *w = new CBGenWriter;
+		w->filename = filename;
+		w->bits = bits;
+		w->phased = (phased == TRUE);
+		w->nvar_written = 0;
+
+		// compression flag
+		uint32_t cflag;
+		if (!strcmp(compress, "none") || !compress[0])
+			cflag = bgen::e_NoCompression;
+		else if (!strcmp(compress, "zlib"))
+			cflag = bgen::e_ZlibCompression;
+		else if (!strcmp(compress, "zstd"))
+			cflag = bgen::e_ZstdCompression;
+		else
+			throw ErrCoreArray("'compress' should be 'zlib', 'zstd' or 'none'.");
+
+		// sample identifiers (NULL for anonymized output)
+		bool has_sample_id = !Rf_isNull(SampleID);
+		std::vector<std::string> sample_ids;
+		if (has_sample_id)
+		{
+			if (Rf_length(SampleID) != nSamp)
+				throw ErrCoreArray("'sample.id' should match the number of samples.");
+			sample_ids.reserve(nSamp);
+			for (int i=0; i < nSamp; i++)
+				sample_ids.push_back(CHAR(STRING_ELT(SampleID, i)));
+		}
+
+		// set up the header context (BGEN layout v1.2)
+		w->context.number_of_samples = nSamp;
+		w->context.number_of_variants = nVariant;
+		w->context.magic = "bgen";
+		w->context.free_data = "";
+		w->context.flags = bgen::e_Layout2 | cflag |
+			(has_sample_id ? bgen::e_SampleIdentifiers : 0);
+
+		// compute the offset = header block + optional sample-id block
+		uint32_t offset = w->context.header_size();
+		if (has_sample_id)
+		{
+			offset += 8;
+			for (int i=0; i < nSamp; i++)
+				offset += 2 + sample_ids[i].size();
+		}
+
+		// open the file & write the leading blocks
+		w->stream.open(filename, std::ofstream::binary);
+		if (!w->stream)
+			throw ErrCoreArray("Can't create the file '%s'.", filename);
+		bgen::write_offset(w->stream, offset);
+		bgen::write_header_block(w->stream, w->context);
+		if (has_sample_id)
+			bgen::write_sample_identifier_block(w->stream, w->context, sample_ids);
+
+		// wrap in an external pointer with a finalizer
+		rv_ans = R_MakeExternalPtr(w, R_NilValue, R_NilValue);
+		PROTECT(rv_ans);
+		R_RegisterCFinalizerEx(rv_ans, bgen_writer_finalizer, TRUE);
+		UNPROTECT(1);
+
+	COREARRAY_CATCH
+}
+
+
+/// Append a block of bi-allelic variants to the BGEN file
+COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_ExportData(SEXP Ptr, SEXP Chr, SEXP Pos,
+	SEXP RSID, SEXP Ref, SEXP Alt, SEXP Prob)
+{
+	COREARRAY_TRY
+
+		CBGenWriter *w = get_bgen_writer(Ptr);
+		bgen::Context &ctx = w->context;
+		const size_t nSamp = ctx.number_of_samples;
+		const size_t nVar = Rf_xlength(Pos);
+
+		// Prob is a numeric array, dim = c(3, nSamp, nVar), column-major
+		double *prob = REAL(Prob);
+		if ((size_t)Rf_xlength(Prob) != 3 * nSamp * nVar)
+			throw ErrCoreArray("Internal: 'prob' has an unexpected length.");
+
+		const uint16_t nAlleles = 2;
+		for (size_t v=0; v < nVar; v++)
+		{
+			std::string chr = CHAR(STRING_ELT(Chr, v));
+			std::string rsid = CHAR(STRING_ELT(RSID, v));
+			std::string ref = CHAR(STRING_ELT(Ref, v));
+			std::string alt = CHAR(STRING_ELT(Alt, v));
+			uint32_t position = (uint32_t)(INTEGER(Pos)[v]);
+			std::string alleles[2] = { ref, alt };
+
+			// variant identifying data (SNPID left empty; RSID from annotation/id)
+			bgen::write_snp_identifying_data(&w->buf_id, ctx,
+				std::string(), rsid, chr, position, nAlleles,
+				[&alleles](uint16_t i) -> std::string { return alleles[i]; });
+			w->stream.write((const char *)&w->buf_id[0], w->buf_id.size());
+
+			// genotype probability data block
+			bgen::GenotypeDataBlockWriter writer(&w->buf1, &w->buf2, ctx, w->bits);
+			writer.initialise(nSamp, nAlleles);
+			double *p = prob + 3 * nSamp * v;
+			for (size_t i=0; i < nSamp; i++, p+=3)
+			{
+				writer.set_sample(i);
+				writer.set_number_of_entries(2, 3,
+					genfile::ePerUnorderedGenotype, genfile::eProbability);
+				if (p[0]!=p[0] || p[1]!=p[1] || p[2]!=p[2])  // any NaN => missing
+				{
+					for (uint32_t e=0; e < 3; e++)
+						writer.set_value(e, genfile::MissingValue());
+				} else {
+					// clamp to [0,1] and renormalize so the 3 probs sum to 1
+					double g[3];
+					double s = 0;
+					for (int e=0; e < 3; e++)
+					{
+						double x = p[e];
+						if (x < 0) x = 0; else if (x > 1) x = 1;
+						g[e] = x; s += x;
+					}
+					if (s > 0)
+						{ g[0]/=s; g[1]/=s; g[2]/=s; }
+					else
+						{ g[0]=1; g[1]=g[2]=0; }
+					for (uint32_t e=0; e < 3; e++)
+						writer.set_value(e, g[e]);
+				}
+			}
+			writer.finalise();
+			std::pair<genfile::byte_t const*, genfile::byte_t const*> r = writer.repr();
+			w->stream.write((const char *)r.first, r.second - r.first);
+
+			w->nvar_written++;
+		}
+
+	COREARRAY_CATCH
+}
+
+
+/// Flush and close the BGEN file
+COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_ExportEnd(SEXP Ptr)
+{
+	COREARRAY_TRY
+
+		CBGenWriter *w = get_bgen_writer(Ptr);
+		w->stream.flush();
+		if (!w->stream)
+			throw ErrCoreArray("Error writing to '%s'.", w->filename.c_str());
+		C_Int64 expected = w->context.number_of_variants;
+		C_Int64 got = w->nvar_written;
+		w->stream.close();
+		// detach: free now instead of waiting for GC
+		delete w;
+		R_ClearExternalPtr(Ptr);
+		if (got != expected)
+			throw ErrCoreArray("Wrote %lld variants but the header declared %lld.",
+				(long long)got, (long long)expected);
+
+	COREARRAY_CATCH
+}
+
+
+
 /// Initialize the package
 COREARRAY_DLL_EXPORT void R_init_gds2bgen(DllInfo *info)
 {
@@ -656,6 +880,9 @@ COREARRAY_DLL_EXPORT void R_init_gds2bgen(DllInfo *info)
 	{
 		CALL(SEQ_BGEN_Info, 1),
 		CALL(SEQ_BGEN_Import, 6),
+		CALL(SEQ_BGEN_ExportBegin, 7),
+		CALL(SEQ_BGEN_ExportData, 7),
+		CALL(SEQ_BGEN_ExportEnd, 1),
 		{ NULL, NULL, 0 }
 	};
 	R_registerRoutines(info, NULL, callMethods, NULL, NULL);

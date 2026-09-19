@@ -7,7 +7,9 @@
 BGEN_DIR = bgen_v1.1.8
 
 # additional preprocessor options
-PKG_CPPFLAGS = -I$(BGEN_DIR)/genfile/include -I$(BGEN_DIR)/3rd_party/zstd-1.1.0/lib
+# -DHAVE_ZLIB enables the compressed-block writer in the header-only bgen API
+# (genfile/bgen/bgen.hpp); without it the GDS->BGEN compression path is disabled.
+PKG_CPPFLAGS = -I$(BGEN_DIR)/genfile/include -I$(BGEN_DIR)/3rd_party/zstd-1.1.0/lib -DHAVE_ZLIB=1
 
 # to set flags for the linker
 PKG_LIBS = libbgen.a libzstd.a

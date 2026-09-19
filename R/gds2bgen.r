@@ -74,7 +74,8 @@ seqBGEN_Info <- function(bgen.fn=NULL, verbose=TRUE)
 # Format conversion from BGEN to GDS
 #
 seqBGEN2GDS <- function(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
-    c("packed8", "packed16", "single", "double", "sp.real32", "sp.real64"),
+    c("packed8", "packed16", "single", "double", "sp.real8u", "sp.real16u",
+    "sp.real32", "sp.real64"),
     geno=FALSE, dosage=TRUE, prob=FALSE, ignore.chr.prefix=c("chr", "0"),
     start=1L, count=-1L, sample.id=NULL, optimize=TRUE, digest=TRUE, parallel=FALSE,
     verbose=TRUE)
@@ -83,6 +84,14 @@ seqBGEN2GDS <- function(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
     stopifnot(is.character(bgen.fn), length(bgen.fn)==1L)
     stopifnot(is.character(out.fn), length(out.fn)==1L)
     float.type <- match.arg(float.type)
+    if (float.type %in% c("sp.real8u", "sp.real16u"))
+    {
+        if (packageVersion("gdsfmt") < "1.49.9")
+        {
+            stop("float.type='", float.type, "' requires gdsfmt (>= 1.49.9), ",
+                "but gdsfmt v", packageVersion("gdsfmt"), " is installed.")
+        }
+    }
     if (is.character(storage.option))
     {
         storage.option <- seqStorageOption(storage.option)
@@ -91,15 +100,19 @@ seqBGEN2GDS <- function(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
             packed16 = "packedreal16u:offset=0,scale=1/32767",
             single   = "float32",
             double   = "float64",
-            sp.real32 = "sp.real32",
-            sp.real64 = "sp.real64")
+            sp.real8u  = "sp.real8u:scale=1/127",
+            sp.real16u = "sp.real16u:scale=1/32767",
+            sp.real32  = "sp.real32",
+            sp.real64  = "sp.real64")
         s2 <- switch(float.type,
             packed8  = "packedreal8u:offset=0,scale=1/254",
             packed16 = "packedreal16u:offset=0,scale=1/65534",
             single   = "float32",
             double   = "float64",
-            sp.real32 = "sp.real32",
-            sp.real64 = "sp.real64")
+            sp.real8u  = "sp.real8u:scale=1/254",
+            sp.real16u = "sp.real16u:scale=1/65534",
+            sp.real32  = "sp.real32",
+            sp.real64  = "sp.real64")
 		storage.option$mode <- c(
 			`annotation/format/DS`=s1,
 			`annotation/format/GP`=s2
@@ -429,5 +442,211 @@ seqBGEN2GDS <- function(bgen.fn, out.fn, storage.option="LZMA_RA", float.type=
     if (verbose) .cat("##> ", tm())
 
     # output
+    invisible(normalizePath(out.fn))
+}
+
+
+
+#############################################################
+# Format conversion from GDS to BGEN
+#
+
+seqGDS2BGEN <- function(gdsfn, out.fn, prob.source=c("auto", "GP", "DS", "GT"),
+    bits=8L, compression=c("zlib", "zstd", "none"), sample.id=NULL,
+    block.size=1024L, verbose=TRUE)
+{
+    # check
+    stopifnot(is.character(out.fn), length(out.fn)==1L, !is.na(out.fn))
+    prob.source <- match.arg(prob.source)
+    compression <- match.arg(compression)
+    stopifnot(is.numeric(bits), length(bits)==1L, bits>=1L, bits<=32L)
+    bits <- as.integer(bits)
+    stopifnot(is.numeric(block.size), length(block.size)==1L, block.size>=1L)
+    block.size <- as.integer(block.size)
+    stopifnot(is.logical(verbose), length(verbose)==1L)
+
+    # open the GDS file
+    if (is.character(gdsfn))
+    {
+        stopifnot(length(gdsfn)==1L, !is.na(gdsfn))
+        f <- SeqArray::seqOpen(gdsfn)
+        on.exit(SeqArray::seqClose(f))
+    } else {
+        stopifnot(inherits(gdsfn, "SeqVarGDSClass"))
+        f <- gdsfn
+    }
+
+    # dimension (respecting the current sample/variant filter)
+    sid <- SeqArray::seqGetData(f, "sample.id")
+    nSamp <- length(sid)
+    nVar <- length(SeqArray::seqGetData(f, "variant.id"))
+    if (nSamp <= 0L) stop("No selected sample in the GDS file.")
+    if (nVar <= 0L) stop("No selected variant in the GDS file.")
+
+    # variant identifying data
+    chr <- as.character(SeqArray::seqGetData(f, "chromosome"))
+    pos <- as.integer(SeqArray::seqGetData(f, "position"))
+    rsid <- as.character(SeqArray::seqGetData(f, "annotation/id"))
+    rsid[is.na(rsid)] <- ""
+    allele <- SeqArray::seqGetData(f, "allele")
+    sp <- strsplit(allele, ",", fixed=TRUE)
+    if (any(lengths(sp) != 2L))
+        stop("Only bi-allelic variants are supported; please split multiallelic sites first.")
+    ref <- vapply(sp, `[`, "", 1L)
+    alt <- vapply(sp, `[`, "", 2L)
+
+    # sample id written into the bgen file
+    if (is.null(sample.id))
+    {
+        bgen.sid <- as.character(sid)
+    } else if (isFALSE(sample.id)) {
+        bgen.sid <- NULL   # anonymized output
+    } else {
+        stopifnot(is.vector(sample.id), length(sample.id)==nSamp)
+        bgen.sid <- as.character(sample.id)
+    }
+
+    # resolve "auto": prefer GP (lossless), then DS, then GT
+    .has <- function(p) !is.null(index.gdsn(f, p, silent=TRUE))
+    if (prob.source == "auto")
+    {
+        if (.has("annotation/format/GP")) prob.source <- "GP"
+        else if (.has("annotation/format/DS")) prob.source <- "DS"
+        else if (.has("genotype/data")) prob.source <- "GT"
+        else stop("None of 'GP', 'DS' or 'GT' is available in the GDS file.")
+    }
+
+    # the FORMAT/genotype field to read
+    varnm <- switch(prob.source,
+        GP = "annotation/format/GP",
+        DS = "annotation/format/DS",
+        GT = "genotype")
+    chk <- switch(prob.source, GT="genotype/data", varnm)
+    if (!.has(chk))
+        stop(sprintf("'%s' is not available; choose another 'prob.source'.", varnm))
+
+    if (verbose)
+    {
+        .cat("##< ", tm())
+        cat("GDS Import:\n")
+        .cat("    file: ", f$filename)
+        .cat("    # of samples: ", nSamp)
+        .cat("    # of variants: ", nVar)
+        .cat("    probability source: ", prob.source, " (",
+            switch(prob.source,
+                GP="lossless", DS="dosage-derived, lossy", GT="hard-call"), ")")
+        cat("BGEN Output:\n")
+        .cat("    file: ", out.fn)
+        .cat("    layout version: v1.2")
+        .cat("    compression: ", compression)
+        .cat("    # of bits: ", bits)
+        .cat("    sample id: ", if (is.null(bgen.sid)) "<anonymized>" else "yes")
+        flush.console()
+    }
+
+    # create the bgen writer (writes the header & sample-id blocks)
+    ptr <- .Call(SEQ_BGEN_ExportBegin, out.fn, nSamp, nVar, bgen.sid, bits,
+        compression, FALSE)
+
+    # running variant offset, shared with the block callback
+    env <- new.env()
+    env$off <- 0L
+
+    # convert dosage -> (3 x nSamp) genotype probabilities, lossy
+    .ds2prob <- function(d, k)
+    {
+        na <- is.na(d)
+        p1 <- p2 <- p3 <- matrix(0, nSamp, k)
+        lo <- !na & (d <= 1); hi <- !na & (d > 1)
+        p1[lo] <- 1 - d[lo]; p2[lo] <- d[lo]
+        p2[hi] <- 2 - d[hi]; p3[hi] <- d[hi] - 1
+        p1[na] <- NaN; p2[na] <- NaN; p3[na] <- NaN
+        array(rbind(as.vector(p1), as.vector(p2), as.vector(p3)),
+            dim=c(3L, nSamp, k))
+    }
+    # convert alt-allele counts -> (3 x nSamp) one-hot probabilities
+    .cnt2prob <- function(cnt, k)
+    {
+        na <- is.na(cnt)
+        p1 <- p2 <- p3 <- matrix(0, nSamp, k)
+        p1[cnt==0L] <- 1; p2[cnt==1L] <- 1; p3[cnt==2L] <- 1
+        p1[na] <- NaN; p2[na] <- NaN; p3[na] <- NaN
+        array(rbind(as.vector(p1), as.vector(p2), as.vector(p3)),
+            dim=c(3L, nSamp, k))
+    }
+
+    # flush a block of variants to the bgen file
+    .flush <- function(prob, k)
+    {
+        idx <- env$off + seq_len(k)
+        .Call(SEQ_BGEN_ExportData, ptr, chr[idx], pos[idx], rsid[idx],
+            ref[idx], alt[idx], prob)
+        env$off <- env$off + k
+        invisible()
+    }
+
+    if (prob.source == "DS")
+    {
+        SeqArray::seqBlockApply(f, varnm, function(x) {
+            x <- as.matrix(x)            # nSamp x k
+            k <- ncol(x)
+            .flush(.ds2prob(x, k), k)
+        }, margin="by.variant", as.is="none", bsize=block.size)
+
+    } else if (prob.source == "GT") {
+        SeqArray::seqBlockApply(f, varnm, function(x) {
+            # x: array of dim c(2, nSamp, k); 0=ref, 1=alt, NA=missing
+            k <- dim(x)[3L]
+            cnt <- x[1L,,] + x[2L,,]     # nSamp x k
+            dim(cnt) <- c(nSamp, k)
+            .flush(.cnt2prob(cnt, k), k)
+        }, margin="by.variant", as.is="none", bsize=block.size)
+
+    } else {  # GP, reconstruct full genotype probabilities, lossless
+        # seqBGEN2GDS stores GP without the ref-homozygous probability and with
+        # an '@data' length that does not match the stored rows, so SeqArray's
+        # decoder cannot read it; read the raw nodes directly instead.
+        gp_data <- read.gdsn(index.gdsn(f, "annotation/format/GP/data"))  # nSampAll x totalRows
+        nSampAll <- length(SeqArray::seqGetFilter(f)$sample.sel)
+        if (is.null(dim(gp_data))) dim(gp_data) <- c(nSampAll, length(gp_data)/nSampAll)
+        # the raw node ignores the sample filter, so subset to the selected samples
+        ssel <- which(SeqArray::seqGetFilter(f)$sample.sel)
+        if (length(ssel) != nSampAll) gp_data <- gp_data[ssel, , drop=FALSE]
+        gp_len <- read.gdsn(index.gdsn(f, "annotation/format/GP/@data"))  # per-variant max length
+        rows_v <- ifelse(gp_len >= 2L, gp_len - 1L, gp_len)               # stored rows per variant
+        col_end <- cumsum(rows_v)
+        col_beg <- col_end - rows_v + 1L
+        # raw indices of the selected variants, in ascending (output) order
+        sel <- which(SeqArray::seqGetFilter(f)$variant.sel)
+        if (length(sel) != nVar)
+            stop("Internal: variant selection does not match the GP data.")
+
+        for (j in seq_len(nVar))
+        {
+            r <- sel[j]
+            L <- rows_v[r]
+            m <- gp_data[, col_beg[r]:col_end[r], drop=FALSE]   # nSamp x L
+            prob <- matrix(NaN, 3L, nSamp)
+            if (L >= 2L)
+            {
+                het <- m[, L-1L]; altp <- m[, L]
+                ok <- !is.na(het) & !is.na(altp)
+                prob[1L, ok] <- 1 - het[ok] - altp[ok]
+                prob[2L, ok] <- het[ok]
+                prob[3L, ok] <- altp[ok]
+            } else {
+                v <- m[, 1L]; ok <- !is.na(v)
+                prob[1L, ok] <- v[ok]
+            }
+            .flush(array(prob, dim=c(3L, nSamp, 1L)), 1L)
+        }
+    }
+
+    # close the bgen file (verifies the variant count)
+    .Call(SEQ_BGEN_ExportEnd, ptr)
+
+    if (verbose)
+        .cat("Done.  ##> ", tm())
+
     invisible(normalizePath(out.fn))
 }

@@ -1,3 +1,18 @@
+CHANGES IN VERSION 0.9.5 (2026-06)
+-------------------------
+
+    o new `seqGDS2BGEN()` for the reverse conversion from GDS to bgen files
+      (layout v1.2), with genotype probabilities sourced from GP (lossless),
+      DS (dosage-derived) or GT (hard calls), and zlib/zstd compression
+
+    o define -DHAVE_ZLIB so the header-only bgen compressed-block writer is
+      enabled
+
+    o new options 'sp.real8u' and 'sp.real16u' in `seqBGEN2GDS()` to store
+      dosages and probabilities in sparse arrays of packed real numbers
+      (requiring gdsfmt >= v1.49.9)
+
+
 CHANGES IN VERSION 0.9.4 (2025-02)
 -------------------------
 
