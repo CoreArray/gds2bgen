@@ -382,6 +382,9 @@ COREARRAY_DLL_EXPORT SEXP SEQ_BGEN_Info(SEXP bgen_fn)
 			if ((m_context.flags & bgen::e_Layout2) &&
 				m_context.number_of_samples>0 && m_context.number_of_variants>0)
 			{
+				// the first variant data block may not immediately follow the
+				// header/sample-identifier blocks (e.g., UK Biobank bgen files)
+				m_stream.seekg(m_offset + 4);
 				// used for v1.2 only
 				vector<genfile::byte_t> m_buffer1, m_buffer2;
 				// variant info (unused)

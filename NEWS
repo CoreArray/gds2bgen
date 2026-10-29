@@ -1,3 +1,14 @@
+CHANGES IN VERSION 0.9.6 (2026-10)
+-------------------------
+
+    o bug fix: `seqBGEN_Info()` now seeks to the first variant data block at
+      'offset + 4' before probing the phased status, # of bits and ploidy,
+      instead of assuming that the block immediately follows the header or
+      sample identifier block; previously it crashed on bgen files with
+      padding in between, e.g., the UK Biobank imputation files which omit
+      the sample identifiers but keep the space reserved
+
+
 CHANGES IN VERSION 0.9.5 (2026-06)
 -------------------------
 

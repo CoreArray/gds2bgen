@@ -1,8 +1,8 @@
 Package: gds2bgen
 Type: Package
 Title: Format Conversion Between BGEN and GDS
-Version: 0.9.5
-Date: 2026-06-14
+Version: 0.9.6
+Date: 2026-10-29
 Depends: R (>= 3.3.0), methods, gdsfmt (>= 1.24.0)
 Imports: SeqArray (>= 1.24.0)
 LinkingTo: gdsfmt
